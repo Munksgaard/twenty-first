@@ -8,7 +8,7 @@ use std::ops::Sub;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrimeField {
-    q: i128,
+    pub q: i128,
 }
 
 impl PrimeField {

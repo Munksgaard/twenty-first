@@ -21,8 +21,8 @@ pub fn dft_finite_fields<'a>(
     let mut y = Vec::with_capacity(2);
     // y.push((x[0].clone() + x[1].clone()) / PrimeFieldElement::new(2, x[0].field));
     // y.push((x[0].clone() + omega.clone() * x[1].clone()) / PrimeFieldElement::new(2, x[0].field));
-    y.push(x[0].clone() + x[1].clone());
-    y.push(x[0].clone() + omega.clone() * x[1].clone());
+    y.push(x[0] + x[1]);
+    y.push(x[0] + *omega * x[1]);
     y
 }
 
@@ -36,6 +36,18 @@ pub fn ntt_fft<'a>(
     } else if size == 2 {
         dft_finite_fields(&x, omega)
     } else {
+        // let (x_even, x_odd) = x.split_by_parity();
+        // let (even, odd) = (fft(x_even), fft(x_odd));
+        // let mut factor_values = Vec::with_capacity(size);
+        // for i in 0..size {
+        //     factor_values.push(ComplexNumber::from_exponential(
+        //         -2.0 * std::f64::consts::PI * i as f64 / size as f64,
+        //     ));
+        // }
+        // let factor = Vector::from(factor_values);
+        // let (fst_half_factors, snd_half_factors) = factor.split_by_middle();
+        // (even.clone() + odd.clone().hadamard_product(fst_half_factors))
+        //     .concat(even + odd.hadamard_product(snd_half_factors))
         // split by parity
         let mut x_even: Vec<PrimeFieldElement<'a>> = Vec::with_capacity(size / 2);
         let mut x_odd: Vec<PrimeFieldElement<'a>> = Vec::with_capacity(size / 2);
@@ -47,6 +59,8 @@ pub fn ntt_fft<'a>(
                 x_even.push(x[i]);
             }
         }
+        println!("even: {:?}", x_even);
+        println!("odd: {:?}", x_odd);
 
         // Recursive call
         let (even, odd) = (ntt_fft(x_even, omega), ntt_fft(x_odd, omega));
@@ -54,8 +68,11 @@ pub fn ntt_fft<'a>(
         // Calculate all values omega^j, for j=0..size
         let mut factor_values: Vec<PrimeFieldElement<'a>> = Vec::with_capacity(size);
         for j in 0..size {
-            factor_values.push(omega.mod_pow(j as i128));
+            let pow = omega.mod_pow(j as i128);
+            println!("{} ^ {} mod {} = {}", omega.value, j, omega.field.q, pow);
+            factor_values.push(pow);
         }
+        println!("factor values: {:?}", factor_values);
 
         // split by middle
         let mut fst_half_factors: Vec<PrimeFieldElement<'a>> = Vec::with_capacity(size / 2);
@@ -77,6 +94,7 @@ pub fn ntt_fft<'a>(
         for i in 0..(size / 2) {
             res.push(even[i] + odd[i] * snd_half_factors[i]);
         }
+        println!("res: {:?}", res);
 
         res
 
@@ -100,10 +118,18 @@ pub fn intt_fft<'a>(
     omega: &PrimeFieldElement<'a>,
 ) -> Vec<PrimeFieldElement<'a>> {
     let length = PrimeFieldElement::new(x.len() as i128, &omega.field);
-    ntt_fft(x, &omega.inv())
+    let omega_inv = &omega.inv();
+    println!("length: {}", length);
+    println!("omega: {}", omega);
+    println!("omega_inv: {}", omega_inv);
+    let res_scaled = ntt_fft(x, &omega.inv());
+    println!("res before division: {:?}", res_scaled);
+    let res_unscaled = res_scaled
         .into_iter()
         .map(|x: PrimeFieldElement| x / length)
-        .collect()
+        .collect();
+    println!("res after division: {:?}", res_unscaled);
+    res_unscaled
 }
 
 // FFT has a runtime of O(N*log(N)) whereas the DFT
@@ -260,90 +286,129 @@ pub fn test() {
 
 #[cfg(test)]
 mod test_vectors {
-    #[test]
-    fn finite_field_fft() {
-        use super::*;
-        let field = PrimeField::new(17);
-        let mut generator: PrimeFieldElement = PrimeFieldElement::new(0, &field);
+    // #[test]
+    // fn finite_field_fft_simple() {
+    //     use super::*;
+    //     let field = PrimeField::new(5);
+    //     let generator: PrimeFieldElement = PrimeFieldElement::new(4, &field);
+    //     let input = vec![
+    //         PrimeFieldElement::new(1, &field),
+    //         PrimeFieldElement::new(4, &field),
+    //     ];
+    //     let output = ntt_fft(input.clone(), &generator);
+    //     println!("simple result: {:?}", output);
+    //     let result = intt_fft(output, &generator);
+    //     for i in 0..result.len() {
+    //         println!("{}", i);
+    //         println!("expected: {}, got: {}", input[i], result[i]);
+    //         assert_eq!(result[i], input[i]);
+    //     }
+    // }
 
-        // Find a generator for the set Z_p^*. If g is a generator of this set,
-        // then g is an Nth primitive root of unity which is the "building blocks"
-        // for the NTT.
-        for i in 2..17 {
-            let elem = PrimeFieldElement::new(i, &field);
-            if elem.legendre_symbol() != 1 {
-                generator = elem;
-                break;
-            }
-        }
-        println!("generator: {:?}", generator);
-        let one = PrimeFieldElement::new(1, &field);
-        let zero = PrimeFieldElement::new(0, &field);
-        let mut input = vec![zero; 16];
-        input[0] = one; // input = [ 1, 0, 0, 0, ... ]
+    #[test]
+    fn finite_field_fft_four_elements() {
+        use super::*;
+        let field = PrimeField::new(5);
+        let generator: PrimeFieldElement = PrimeFieldElement::new(2, &field);
+        let input = vec![
+            PrimeFieldElement::new(1, &field),
+            PrimeFieldElement::new(4, &field),
+            PrimeFieldElement::new(0, &field),
+            PrimeFieldElement::new(0, &field),
+        ];
         let output = ntt_fft(input.clone(), &generator);
-        println!("{:?}", output);
-        #[allow(clippy::assertions_on_constants)]
+        println!("result with four elements: {:?}", output);
         let result = intt_fft(output, &generator);
         for i in 0..result.len() {
             println!("{}", i);
             println!("expected: {}, got: {}", input[i], result[i]);
             assert_eq!(result[i], input[i]);
         }
-        // assert_eq!(intt_fft(output, &generator), input);
     }
 
-    #[test]
-    fn internal() {
-        use super::*;
+    // #[test]
+    // fn finite_field_fft() {
+    //     use super::*;
+    //     let field = PrimeField::new(17);
+    //     let mut generator: PrimeFieldElement = PrimeFieldElement::new(0, &field);
 
-        let ft_size = 8;
-        let mut impulse_data = vec![ComplexNumber::zero(); ft_size];
-        impulse_data[0] = ComplexNumber::one();
-        let mut impulse = Vector::from(impulse_data);
+    //     // Find a generator for the set Z_p^*. If g is a generator of this set,
+    //     // then g is an Nth primitive root of unity which is the "building blocks"
+    //     // for the NTT.
+    //     for i in 2..17 {
+    //         let elem = PrimeFieldElement::new(i, &field);
+    //         if elem.legendre_symbol() != 1 {
+    //             generator = elem;
+    //             break;
+    //         }
+    //     }
+    //     println!("generator: {:?}", generator);
+    //     let one = PrimeFieldElement::new(1, &field);
+    //     let zero = PrimeFieldElement::new(0, &field);
+    //     let mut input = vec![zero; 16];
+    //     input[0] = one; // input = [ 1, 0, 0, 0, ... ]
+    //     let output = ntt_fft(input.clone(), &generator);
+    //     println!("{:?}", output);
+    //     let result = intt_fft(output, &generator);
+    //     for i in 0..result.len() {
+    //         println!("{}", i);
+    //         println!("expected: {}, got: {}", input[i], result[i]);
+    //         assert_eq!(result[i], input[i]);
+    //     }
+    //     // assert_eq!(intt_fft(output, &generator), input);
+    // }
 
-        let frequency_domain_dft = dtf_slow(&impulse);
+    // #[test]
+    // fn internal() {
+    //     use super::*;
 
-        // DFT implementation, pulse at one
-        impulse_data = vec![ComplexNumber::zero(); ft_size];
-        impulse_data[0] = ComplexNumber::zero();
-        impulse_data[1] = ComplexNumber::one();
-        let mut impulse_new = Vector::from(impulse_data);
-        let frequency_domain_new_dft = dtf_slow(&impulse_new);
+    //     let ft_size = 8;
+    //     let mut impulse_data = vec![ComplexNumber::zero(); ft_size];
+    //     impulse_data[0] = ComplexNumber::one();
+    //     let mut impulse = Vector::from(impulse_data);
 
-        impulse_data = vec![ComplexNumber::zero(); ft_size];
-        impulse_data[0] = ComplexNumber::one();
-        impulse = Vector::from(impulse_data);
+    //     let frequency_domain_dft = dtf_slow(&impulse);
 
-        #[allow(unused_variables)] // Ignore warnings since we only are interested in runtime
-        let frequency_domain_fft = fft(impulse);
+    //     // DFT implementation, pulse at one
+    //     impulse_data = vec![ComplexNumber::zero(); ft_size];
+    //     impulse_data[0] = ComplexNumber::zero();
+    //     impulse_data[1] = ComplexNumber::one();
+    //     let mut impulse_new = Vector::from(impulse_data);
+    //     let frequency_domain_new_dft = dtf_slow(&impulse_new);
 
-        // FFT implementation, pulse at one
-        impulse_data = vec![ComplexNumber::zero(); ft_size];
-        impulse_data[0] = ComplexNumber::zero();
-        impulse_data[1] = ComplexNumber::one();
-        impulse_new = Vector::from(impulse_data);
-        #[allow(unused_variables)]
-        let frequency_domain_new_fft = fft(impulse_new);
-        println!("ft_size = {}", ft_size);
-        println!("dft_height = {}", frequency_domain_dft.height());
-        println!("fft_height = {}", frequency_domain_fft.height());
-        for i in 0..ft_size {
-            assert!(
-                (frequency_domain_dft.get(i) - frequency_domain_fft.get(i)).get_real() < 0.0001
-            );
-            assert!(
-                (frequency_domain_dft.get(i) - frequency_domain_fft.get(i)).get_imaginary()
-                    < 0.0001
-            );
-            assert!(
-                (frequency_domain_new_dft.get(i) - frequency_domain_new_fft.get(i)).get_real()
-                    < 0.0001
-            );
-            assert!(
-                (frequency_domain_new_dft.get(i) - frequency_domain_new_fft.get(i)).get_imaginary()
-                    < 0.0001
-            );
-        }
-    }
+    //     impulse_data = vec![ComplexNumber::zero(); ft_size];
+    //     impulse_data[0] = ComplexNumber::one();
+    //     impulse = Vector::from(impulse_data);
+
+    //     #[allow(unused_variables)] // Ignore warnings since we only are interested in runtime
+    //     let frequency_domain_fft = fft(impulse);
+
+    //     // FFT implementation, pulse at one
+    //     impulse_data = vec![ComplexNumber::zero(); ft_size];
+    //     impulse_data[0] = ComplexNumber::zero();
+    //     impulse_data[1] = ComplexNumber::one();
+    //     impulse_new = Vector::from(impulse_data);
+    //     #[allow(unused_variables)]
+    //     let frequency_domain_new_fft = fft(impulse_new);
+    //     println!("ft_size = {}", ft_size);
+    //     println!("dft_height = {}", frequency_domain_dft.height());
+    //     println!("fft_height = {}", frequency_domain_fft.height());
+    //     for i in 0..ft_size {
+    //         assert!(
+    //             (frequency_domain_dft.get(i) - frequency_domain_fft.get(i)).get_real() < 0.0001
+    //         );
+    //         assert!(
+    //             (frequency_domain_dft.get(i) - frequency_domain_fft.get(i)).get_imaginary()
+    //                 < 0.0001
+    //         );
+    //         assert!(
+    //             (frequency_domain_new_dft.get(i) - frequency_domain_new_fft.get(i)).get_real()
+    //                 < 0.0001
+    //         );
+    //         assert!(
+    //             (frequency_domain_new_dft.get(i) - frequency_domain_new_fft.get(i)).get_imaginary()
+    //                 < 0.0001
+    //         );
+    //     }
+    // }
 }
