@@ -17,10 +17,10 @@ impl PrimeField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PrimeFieldElement<'a> {
-    value: i128,
-    field: &'a PrimeField,
+    pub value: i128,
+    pub field: &'a PrimeField,
 }
 
 impl fmt::Display for PrimeFieldElement<'_> {
@@ -31,7 +31,14 @@ impl fmt::Display for PrimeFieldElement<'_> {
 
 impl<'a> PrimeFieldElement<'a> {
     pub fn new(value: i128, field: &'a PrimeField) -> Self {
-        Self { value, field }
+        Self {
+            value: (value % field.q + field.q) % field.q,
+            field,
+        }
+    }
+
+    pub fn legendre_symbol(&self) -> i128 {
+        self.mod_pow((self.field.q - 1) / 2).value
     }
 
     fn same_field_check(&self, other: &PrimeFieldElement, operation: &str) {
